@@ -293,7 +293,7 @@ This message was sent from the RLSG website contact form.
     <div class="container">
         <div class="header">
             <img src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Logo%404x-tvd81p6BFPoCBv7YibCH7MZQWeYuvm.png" alt="RLSG Logo" width="150" height="50" class="logo">
-            <h2 style="margin: 0;">New Contact Form Submission</h2>
+            <h2 style="margin: 0;">Custom Pricing Request</h2>
         </div>
         <hr>
 
@@ -348,10 +348,11 @@ app.post('/submit-form', (req, res) => {
 });
 
 app.post("/submit-custom-pricing-form", (req, res) => {
-    const { formData } = req.body;
+    const { name, email, details } = req.body;
+    const formData = { name, email, details };
 
-    if (!formData.name || !formData.email || !formData.message) {
-        return res.status(400).json({ error: 'Message is required.' });
+    if (!formData.email || !formData.details) {
+        return res.status(400).json({ error: 'Message and email are required.' });
     }
 
     sendEmailForCustomPricing(formData)
