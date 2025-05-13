@@ -347,7 +347,7 @@ app.post('/submit-form', (req, res) => {
     return res.status(200).json({ success: true });
 });
 
-app.post("submit-custom-pricing-form", (req, res) => {
+app.post("/submit-custom-pricing-form", (req, res) => {
     const { formData } = req.body;
 
     if (!formData.name || !formData.email || !formData.message) {
