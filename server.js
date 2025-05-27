@@ -3,6 +3,8 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const nodemailer = require('nodemailer');
 const { google} = require('googleapis');
+const { z } = require("zod");
+const Stripe = require("stripe");
 
 require('dotenv').config();
 
@@ -14,6 +16,7 @@ const PORT = 2000;
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false }))
 
 const oAuth2Client = new google.auth.OAuth2(
     CLIENT_ID,
@@ -333,6 +336,54 @@ This message was sent from the RLSG website contact form.
     }
 }
 
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: "2023-10-16",
+});
+
+app.post("/create-checkout-session", async (req, res) => {
+    try {
+        const { packageType, packageName } = req.body;
+
+        console.log("successful connection to backend")
+        let priceId;
+        if (packageType === "hourly") {
+            priceId = process.env.STRIPE_HOURLY_PRICE_ID;
+        } else if (packageType === "pack") {
+            priceId = process.env.STRIPE_PACK_PRICE_ID;
+        } else {
+            return res.status(400).json({ error: "Invalid package type" });
+        }
+
+        if (!priceId) {
+            return res.status(400).json({ error: "Price ID not configured" });
+        }
+
+        const origin = req.headers.origin || "http://localhost:3000";
+
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ["card"],
+            line_items: [
+                {
+                    price: priceId,
+                    quantity: 1,
+                },
+            ],
+            mode: "payment",
+            success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${origin}/checkout/cancel`,
+            metadata: {
+                packageName,
+                packageType,
+            },
+        });
+
+        res.json({ sessionId: session.id });
+    } catch (error) {
+        console.error("Error creating checkout session:", error.message);
+        res.status(500).json({ error: "Failed to create checkout session" });
+    }
+});
+
 // Route to receive message
 app.post('/submit-form', (req, res) => {
     const { formData } = req.body;
@@ -359,6 +410,114 @@ app.post("/submit-custom-pricing-form", (req, res) => {
         .then(result => console.log("Email sent...", result))
         .catch(error => console.log("Error sending email...", error.message));
     return res.status(200).json({ success: true });
+})
+
+// Email validation schema
+const emailSchema = z
+    .string()
+    .email("Please enter a valid email address")
+    .refine((email) => {
+        const fakePatterns = [
+            /^test@/i,
+            /^fake@/i,
+            /^example@/i,
+            /^demo@/i,
+            /^sample@/i,
+            /@test\./i,
+            /@fake\./i,
+            /@example\./i,
+        ]
+        return !fakePatterns.some((pattern) => pattern.test(email))
+    }, "Please use a real email address, not a test email")
+
+app.post("/subscribe", async (req, res) => {
+    const email = req.body.email
+
+    console.log(`Received subscription request for ${email}`)
+
+    // Validate email
+    const validatedEmail = emailSchema.safeParse(email)
+
+    if (!validatedEmail.success) {
+        return res.json({
+            success: false,
+            message: validatedEmail.error.errors[0].message,
+        })
+    }
+
+    const apiKey = process.env.MAILCHIMP_API_KEY
+    const audienceId = process.env.MAILCHIMP_AUDIENCE_ID
+
+    if (!apiKey || !audienceId) {
+        console.error("Mailchimp credentials are missing")
+        return res.status(500).json({
+            success: false,
+            message: "Newsletter service configuration error. Please try again later.",
+        })
+    }
+
+    const dataCenter = apiKey.split("-")[1]
+    const data = {
+        email_address: validatedEmail.data,
+        status: "subscribed",
+        merge_fields: {},
+    }
+
+    try {
+        console.log(`Subscribing ${validatedEmail.data} to Mailchimp list ${audienceId}`)
+
+        const response = await fetch(`https://${dataCenter}.api.mailchimp.com/3.0/lists/${audienceId}/members`, {
+            method: "POST",
+            headers: {
+                Authorization: `apikey ${apiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(data),
+        })
+
+        const responseData = await response.json()
+        console.log(`Mailchimp API response status: ${response.status}`)
+
+        if (!response.ok) {
+            if (response.status === 400 && responseData.title === "Member Exists") {
+                return res.json({
+                    success: true,
+                    message: "You're already subscribed! We'll send you the flyer again.",
+                })
+            }
+
+            if (response.status === 400 && responseData.detail?.includes("looks fake or invalid")) {
+                return res.json({
+                    success: false,
+                    message: "Please enter a real email address. Test or fake email addresses are not accepted.",
+                })
+            }
+
+            if (response.status === 400 && responseData.title === "Invalid Resource") {
+                return res.json({
+                    success: false,
+                    message: "Please enter a valid email address that you actively use.",
+                })
+            }
+
+            console.error("Mailchimp API error:", responseData)
+            return res.status(500).json({
+                success: false,
+                message: responseData.detail || "Failed to subscribe. Please try again later.",
+            })
+        }
+
+        return res.json({
+            success: true,
+            message: "Thank you for subscribing! Check your email for our flyer.",
+        })
+    } catch (error) {
+        console.error("Subscription error:", error)
+        return res.status(500).json({
+            success: false,
+            message: "Failed to subscribe. Please try again later.",
+        })
+    }
 })
 
 app.get("/test", (req, res) => {
