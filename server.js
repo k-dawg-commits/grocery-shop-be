@@ -337,7 +337,7 @@ This message was sent from the RLSG website contact form.
 }
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-    apiVersion: "2023-10-16",
+    apiVersion: "2023-10-16"
 });
 
 app.post("/create-checkout-session", async (req, res) => {
@@ -369,8 +369,8 @@ app.post("/create-checkout-session", async (req, res) => {
                 },
             ],
             mode: "payment",
-            success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${origin}/checkout/cancel`,
+            success_url: `${origin}/checkout/success.html?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${origin}/checkout/cancel.html`,
             metadata: {
                 packageName,
                 packageType,
